@@ -1,6 +1,4 @@
 Query > contenuto: "anti-aliasing"
-/Users/elena/Desktop/homework3_project/scripts/searcher.py:41: DeprecationWarning: Received 'size' via a specific parameter in the presence of a 'body' parameter, which is deprecated and will be removed in a future version. Instead, use only 'body' or only specific parameters.
-  res = es.search(index=target_index, body=query_body, size=10)
 
 Risultati trovati nell'indice 'index_testi': 45 (in 15 ms)
  - Documento: comp.graphics.txt (riga 35743) | Subject: Anti-aliasing utility wanted...
