@@ -1,9 +1,13 @@
 HOMEWORK 3
+
+Elena Pelicella
+ele.pelicella@stud.uniroma3.it
+604853
 https://github.com/elepelix/homework3_elasticsearch
 
-Architettura e implementazione del lavoro 
 
-L’obiettivo dell’homework consiste nel progettare e realizzare un motore di indicizzazione e ricerca per gestire un dataset di documenti di testo (.txt e appartenenti in questo caso al dataset pubblico 20 Newsgroups scaricato da Kaggle in quanto ho impostato il lavoro su un pc nuovo privo di un volume significativo di file).
+Architettura e implementazione del lavoro 
+L’obiettivo dell’homework consiste nel progettare e realizzare un motore di indicizzazione e ricerca per gestire un dataset di documenti di testo (.txt). Per condurre una valutazione quanto più significativa, ho utilizzato un dataset pubblico “20 Newsgroups” scaricato da Kaggle in quanto ho impostato il lavoro su un pc nuovo privo di un volume sufficiente di file. Il dataset è articolato in 20 file di testo collocati nella cartella dati/, ognuno dei quali corrisponde a una specifica categoria tematica (ad esempio comp.graphics.txt per la computer grafica, sci.space.txt per scienza e astronomia e comp.sys.ibm.pc.hardware.txt per l’hardware PC) e aggrega al suo interno migliaia di messaggi e discussioni in lingua inglese, per un volume complessivo di 1.365.296 righe.
 
 Per la realizzazione del progetto ho utilizzato Elasticsearch distribuito ed eseguito in locale all’interno di un container Docker (raggiungibile all’indirizzo http://localhost:9200), scelta che ha reso l'avvio del servizio immediato e senza bisogno di installazioni sul sistema operativo. 
 
@@ -15,9 +19,7 @@ Per rispettare le linee guida che impongono la gestione distinta dei metadati de
 - “index_nomi”: relativo all’indicizzazione dei file, associa a ogni documento l’attributo filename.
 - “index_testi”: relativo al contenuto testuale del file, mantiene l’associazione tra filename, il testo del documento (contenuto) e il corrispondente numero di riga (linea).
 
-
 Analyzer
-
 Per ottimizzare la ricerca in base alla tipologia e alla natura del dato, ho definito i seguenti analyzer nella configurazione dello schema degli indici:
 - Per l’indice “index_nomi”
     - Analyzer utilizzato: keyword
@@ -26,9 +28,7 @@ Per ottimizzare la ricerca in base alla tipologia e alla natura del dato, ho def
     - Analyzer utilizzato: english
     - Motivazione della scelta: il dataset scelto è composto da file di testo in lingua inglese e l’analyzer english garantisce una pipeline completa per il retrieval full-text. In particolare divide il testo in parole (tokenizzazione) e lo converte in minuscolo (lowercasing) rendendo le ricerche case-insensitive; elimina le parole molto comuni e prive di significato (stop-words removal, ad esempio “is”, “the”…); riduce i termini alle loro radici morfologiche (stemming) così da garantire che la ricerca per un determinato termine individui anche le sue varianti al plurale o più in generale le sue forme flesse, incrementando il recall del sistema.
 
-
 Metriche di indicizzazione e prestazioni
-
 Per ottimizzare il processo e velocizzare i tempi di caricamento, invece di optare per la chiamata alla singola API es.index(), che avrebbe generato oltre un milione di richieste HTTP individuali introducendo inevitabilmente un overhead di rete, ho utilizzato la funzione bulk() del modulo elasticsearch.helpers. Questo metodo raccoglie le righe in memoria e le invia ad Elasticsearch a blocchi in poche richieste complessive, riducendo drasticamente il tempo totale di caricamento.
 Metriche rilevate durante l’esecuzione:
 - Cartella sorgente: dati/
@@ -37,9 +37,7 @@ Metriche rilevate durante l’esecuzione:
 - Tempo totale di indicizzazione: 22.50 secondi
 - Tempi medi di risposta delle query: compresi tra 2 ms e 15 ms (verificati tramite il metadato `took` restituito da Elasticsearch).
 
-
 Verifica e risultati delle query
-
 Per verificare la correttezza dello schema degli indici, il comportamento degli analyzer e la gestione delle interrogazioni, ho eseguito 13 query rappresentative. Di seguito sono riportati i risultati reali ottenuti dall’esecuzione e la relativa analisi:
 
 1. Query: contenuto: "anti-aliasing"
@@ -106,4 +104,13 @@ Per verificare la correttezza dello schema degli indici, il comportamento degli 
     - Indice interrogato: index_testi
     - Risultati trovati: 3726 (tempo di risposta: 4 ms)
     - Analisi: Dimostra l'efficacia dello stemming (riconduce "graphics" e "graphic" alla medesima radice) recuperando tutti i riferimenti rilevanti nel testo e incrementando il recall generale della ricerca.
+
+Considerazioni, limiti e sviluppi
+Il sistema ha dimostrato ottime prestazioni sia in fase di ingestione (grazie all'utilizzo della funzione bulk() che ha permesso di caricare oltre 1,36 milioni di righe in circa 22 secondi) sia in fase di interrogazione, garantendo risposte nell'ordine dei pochi millisecondi. 
+
+Tuttavia, l'attuale implementazione presenta alcuni aspetti strutturali migliorabili in futuro:
+- Aggiornamento non incrementale: ad ogni esecuzione dello script indexer.py, gli indici esistenti vengono eliminati e ricreati da zero. In uno scenario reale sarebbe opportuno e più efficiente implementare un meccanismo di indicizzazione incrementale per aggiungere o aggiornare solo i file nuovi o modificati.
+- Bilanciamento tra recall e precision: l'uso dell'analyzer english incrementa sensibilmente il recall (intercettando forme flesse e plurali), ma in alcuni casi può ridurre alla stessa radice morfologica parole con significati differenti, introducendo dunque cali di precision.
+- Gestione delle stopword: query composte esclusivamente da parole molto comuni in lingua inglese come "the", “is" o “and” non producono alcun risultato in quanto termini che vengono rimossi sia in fase di indicizzazione che di analisi della query.
+- Ricerche avanzate: attualmente l'interfaccia CLI supporta query singole (match e match_phrase); un possibile sviluppo futuro potrebbe consistere nell’integrazione di query booleane complesse (con operatori AND, OR, NOT) e di filtri combinati simultaneamente su nome del file e contenuto.
 
