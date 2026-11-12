@@ -1,0 +1,108 @@
+HOMEWORK 3
+
+Architettura e implementazione del lavoro 
+
+L’obiettivo dell’homework consiste nel progettare e realizzare un motore di indicizzazione e ricerca per gestire un dataset di documenti di testo (.txt e appartenenti in questo caso al dataset pubblico 20 Newsgroups scaricato da Kaggle in quanto ho impostato il lavoro su un pc nuovo privo di un volume significativo di file).
+
+Per la realizzazione del progetto ho utilizzato Elasticsearch distribuito ed eseguito in locale all’interno di un container Docker (raggiungibile all’indirizzo http://localhost:9200), scelta che ha reso l'avvio del servizio immediato e senza bisogno di installazioni sul sistema operativo. 
+
+Ho sviluppato l’intera architettura in Python, utilizzato sia per realizzare l’interfaccia di ricerca interattiva destinata all’utente, sia come client HTTP (tramite la libreria ufficiale `elasticsearch`) per comunicare via API REST con il motore di ricerca. Per garantire modularità e pulizia del codice, il progetto è stato suddiviso in due file Python distinti all'interno della cartella `scripts/`:
+- `indexer.py`: dedicato esclusivamente alla configurazione degli indici, alla definizione dei mapping e al caricamento dei dati.
+- `searcher.py`: dedicato all'interfaccia di ricerca CLI (Command Line Interface), responsabile del parsing delle query dell'utente e dell'invio delle richieste ad Elasticsearch.
+
+Per rispettare le linee guida che impongono la gestione distinta dei metadati dei documenti e del loro contenuto riga per riga, ho definito due diversi indici separati: 
+- “index_nomi”: relativo all’indicizzazione dei file, associa a ogni documento l’attributo filename.
+- “index_testi”: relativo al contenuto testuale del file, mantiene l’associazione tra filename, il testo del documento (contenuto) e il corrispondente numero di riga (linea).
+
+
+Analyzer
+
+Per ottimizzare la ricerca in base alla tipologia e alla natura del dato, ho definito i seguenti analyzer nella configurazione dello schema degli indici:
+- Per l’indice “index_nomi”
+    - Analyzer utilizzato: keyword
+    - Motivazione della scelta: il nome del file deve essere conservato e indicizzato nella sua interezza. Keyword evita infatti la frammentazione del testo sui punti o sui caratteri speciali, consentendo la ricerca e il match esatto sulla stringa originale del file.
+- Per l’indice “index_testi”
+    - Analyzer utilizzato: english
+    - Motivazione della scelta: il dataset scelto è composto da file di testo in lingua inglese e l’analyzer english garantisce una pipeline completa per il retrieval full-text. In particolare divide il testo in parole (tokenizzazione) e lo converte in minuscolo (lowercasing) rendendo le ricerche case-insensitive; elimina le parole molto comuni e prive di significato (stop-words removal, ad esempio “is”, “the”…); riduce i termini alle loro radici morfologiche (stemming) così da garantire che la ricerca per un determinato termine individui anche le sue varianti al plurale o più in generale le sue forme flesse, incrementando il recall del sistema.
+
+
+Metriche di indicizzazione e prestazioni
+
+Per ottimizzare il processo e velocizzare i tempi di caricamento, invece di optare per la chiamata alla singola API es.index(), che avrebbe generato oltre un milione di richieste HTTP individuali introducendo inevitabilmente un overhead di rete, ho utilizzato la funzione bulk() del modulo elasticsearch.helpers. Questo metodo raccoglie le righe in memoria e le invia ad Elasticsearch a blocchi in poche richieste complessive, riducendo drasticamente il tempo totale di caricamento.
+Metriche rilevate durante l’esecuzione:
+- Cartella sorgente: dati/
+- Numero di file indicizzati: 20
+- Righe totali elaborate e indicizzate: 1.365.296
+- Tempo totale di indicizzazione: 22.50 secondi
+- Tempi medi di risposta delle query: compresi tra 2 ms e 15 ms (verificati tramite il metadato `took` restituito da Elasticsearch).
+
+
+Verifica e risultati delle query
+
+Per verificare la correttezza dello schema degli indici, il comportamento degli analyzer e la gestione delle interrogazioni, ho eseguito 13 query rappresentative. Di seguito sono riportati i risultati reali ottenuti dall’esecuzione e la relativa analisi:
+
+1. Query: contenuto: "anti-aliasing"
+   - Indice interrogato: index_testi
+   - Risultati trovati: 45 (tempo di risposta: 15 ms)
+   - Analisi: Trattandosi di una stringa tra virgolette, lo script ha eseguito una match_phrase query. L'analyzer english ha gestito il trattino dividendo i termini, mentre la match_phrase ha garantito la ricerca precisa dell’espressione composta mantenendo la sequenza esatta delle parole.
+
+2. Query: contenuto: "scientific visualization"
+   - Indice interrogato: index_testi
+   - Risultati trovati: 81 (tempo di risposta: 6 ms)
+   - Analisi: La query match_phrase ha intercettato correttamente le righe in cui le parole "scientific" e "visualization" compaiono consecutivamente nel testo.
+
+3. Query: nome: comp.os.ms-windows.misc.txt
+   - Indice interrogato: index_nomi
+   - Risultati trovati: 1 (tempo di risposta: 2 ms)
+   - Analisi: L'analyzer keyword ha preservato l'integrità del nome del file senza spezzarlo sui punti e sui trattini, garantendo un match esatto e univoco.
+
+4. Query: contenuto: raytracing
+   - Indice interrogato: index_testi
+   - Risultati trovati: 183 (tempo di risposta: 4 ms)
+   - Analisi: Esecuzione di una match query standard su termine singolo specifico della sezione relativa ai documenti di ambito grafico (comp.graphics) per una ricerca full-text.
+
+5. Query: contenuto: "texture mapping"
+   - Indice interrogato: index_testi
+   - Risultati trovati: 51 (tempo di risposta: 5 ms)
+   - Analisi: Query di tipo match_phrase che estrae la sequenza esatta del termine composto "texture mapping".
+
+6. Query: contenuto: "Delaunay triangulation"
+   - Indice interrogato: index_testi
+   - Risultati trovati: 33 (tempo di risposta: 4 ms)
+   - Analisi: Evidenzia l'efficacia del lowercasing dell'analyzer english: la query inviata con la "D" maiuscola ha intercettato sia "Delaunay Triangulation" che "Delaunay triangulation".
+
+7. Query: contenuto: "packet driver"
+   - Indice interrogato: index_testi
+   - Risultati trovati: 98 (tempo di risposta: 4 ms)
+   - Analisi: L'impiego della match_phrase query garantisce che i due termini vengano individuati esclusivamente come sequenza contigua ed esatta. I 98 riscontri evidenziano la capacità del sistema di recuperare un concetto tecnico specifico presente in documenti appartenenti a macro-aree tematiche differenti, come l'hardware PC (comp.sys.ibm.pc.hardware.txt) e i sistemi di interfaccia grafica (comp.windows.x.txt).
+
+8. Query: contenuto: "virtual memory"
+   - Indice interrogato: index_testi
+   - Risultati trovati: 69 (tempo di risposta: 4 ms)
+   - Analisi: La ricerca per frase esatta presente in contesti eterogenei conferma la trasversalità dell’indice.
+
+9. Query: contenuto: DoubleSpace
+   - Indice interrogato: index_testi
+   - Risultati trovati: 52 (tempo di risposta: 3 ms)
+   - Analisi: Dimostra l'azione combinata di lowercasing e stemming dell'analyzer english. La ricerca di "DoubleSpace" ha individuato sia "doublespace" che la forma flessa "DoubleSpaced".
+
+10. Query: nome: comp.graphics.txt
+    - Indice interrogato: index_nomi
+    - Risultati trovati: 1 (tempo di risposta: 2 ms)
+    - Analisi: Match esatto ed atomico sul nome del file tramite l'analyzer keyword.
+
+11. Query: contenuto: space
+    - Indice interrogato: index_testi
+    - Risultati trovati: 5019 (tempo di risposta: 5 ms)
+    - Analisi: Termine ad alta frequenza che mostra la capacità del sistema di gestire grandi volumi di corrispondenze su più categorie.
+
+12. Query: contenuto: system
+    - Indice interrogato: index_testi
+    - Risultati trovati: 10000 (tempo di risposta: 3 ms)
+    - Analisi: Termine ad altissima frequenza. Raggiunge la soglia massima di conteggio di Elasticsearch, confermando la performance nella gestione di volumi di dati elevati.
+
+13. Query: contenuto: graphics
+    - Indice interrogato: index_testi
+    - Risultati trovati: 3726 (tempo di risposta: 4 ms)
+    - Analisi: Dimostra l'efficacia dello stemming (riconduce "graphics" e "graphic" alla medesima radice) recuperando tutti i riferimenti rilevanti nel testo e incrementando il recall generale della ricerca.
+
